@@ -1,3 +1,17 @@
+//! A very medicre hashmap
+
+/// A very medicre hashmap
+///
+/// # Examples
+/// ```
+/// let mut map = mediocremap::MediocreMap::new();
+/// map.insert("tk1", "tv1");
+/// map.insert("tk2", "tv2");
+///
+/// map.remove(&"tk1");
+/// assert_eq!(map.get(&"tk1"), None);
+/// assert_eq!(map.get(&"tk2"), Some(&"tv2"));
+/// ```
 #[derive(Debug, Clone)]
 pub struct MediocreMap<K, V> {
     lookup: Vec<Option<Vec<(K, Box<V>)>>>,
@@ -8,6 +22,7 @@ impl<K, V> MediocreMap<K, V> {
         input.iter().fold(0, |state, x| state ^ x) as usize
     }
 
+    /// Create an iterator over all borrowed elements in the map
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.lookup
             .iter()
@@ -19,6 +34,7 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, v.as_ref()))
     }
 
+    /// Create an iterator over all mutably borrowed elements in the map
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut K, &mut V)> {
         self.lookup
             .iter_mut()
@@ -30,6 +46,7 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, v.as_mut()))
     }
 
+    /// Create an iterator over all elements in the map. This consumes the map
     pub fn into_iter(self) -> impl Iterator<Item = (K, V)> {
         self.lookup
             .into_iter()
@@ -38,16 +55,19 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, *v))
     }
 
+    /// Create a new Map
     pub fn new() -> Self {
         Self { lookup: vec![] }
     }
 
+    /// Create a new map with a specified capacity for the internal vector
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             lookup: Vec::with_capacity(cap),
         }
     }
 
+    /// Insert a given key
     pub fn insert(&mut self, key: K, value: V)
     where
         K: AsRef<[u8]>,
@@ -66,6 +86,7 @@ impl<K, V> MediocreMap<K, V> {
         }
     }
 
+    /// Remove a given key. Returns None when the key was not present and Some(()) when the key was present
     pub fn remove(&mut self, key: &K) -> Option<()>
     where
         K: AsRef<[u8]> + PartialEq<K>,
@@ -84,6 +105,7 @@ impl<K, V> MediocreMap<K, V> {
         }
     }
 
+    /// Get the value at the given key
     pub fn get(&self, key: &K) -> Option<&V>
     where
         K: AsRef<[u8]> + PartialEq<K>,
@@ -103,19 +125,25 @@ impl<K, V> MediocreMap<K, V> {
     }
 }
 
-impl<K, V> From<&[(K, V)]> for MediocreMap<K, V>
+impl<K, V, const N: usize> From<[(K, V); N]> for MediocreMap<K, V>
 where
-    K: AsRef<[u8]> + PartialEq<K> + Clone,
-    V: Clone,
+    K: AsRef<[u8]> + PartialEq<K>,
 {
-    fn from(value: &[(K, V)]) -> Self {
-        value.iter().fold(
-            MediocreMap::with_capacity(value.len()),
-            |mut state, (k, v)| {
-                state.insert(k.clone(), v.clone());
+    /// Construct a map from a slice of key-value pairs
+    /// # Examples
+    /// ```
+    /// let map = mediocremap::MediocreMap::from([("tk1", "tv1"), ("tk2", "tv2")]);
+    /// assert_eq!(map.get(&"tk1"), Some(&"tv1"));
+    /// assert_eq!(map.get(&"tk2"), Some(&"tv2"));
+    /// ```
+    fn from(value: [(K, V); N]) -> Self {
+        let len = value.len();
+        value
+            .into_iter()
+            .fold(MediocreMap::with_capacity(len), |mut state, x| {
+                state.insert(x.0, x.1);
                 state
-            },
-        )
+            })
     }
 }
 
