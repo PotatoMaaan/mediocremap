@@ -147,6 +147,16 @@ where
     }
 }
 
+impl<K, V> std::ops::Index<K> for MediocreMap<K, V>
+where
+    K: AsRef<[u8]> + PartialEq<K>,
+{
+    type Output = V;
+    fn index(&self, index: K) -> &Self::Output {
+        return self.get(&index).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +205,15 @@ mod tests {
         assert!(items.contains(&(&"tk2", &"tv2")));
         assert!(items.contains(&(&"tk3", &"tv3")));
         assert!(items.contains(&(&"tk4", &"tv4")));
+    }
+
+    #[test]
+    fn test_index() {
+        let map = get_test_map();
+
+        assert_eq!(map["tk1"], "tv1");
+        assert_eq!(map["tk2"], "tv2");
+        assert_eq!(map["tk3"], "tv3");
+        assert_eq!(map["tk4"], "tv4");
     }
 }
