@@ -75,11 +75,12 @@ impl<K, V> MediocreMap<K, V> {
         let index = Self::hash(&key.as_ref());
 
         if self.lookup.len() <= index {
-            self.lookup.extend((0..=index).map(|_| None));
+            self.lookup.resize_with(index + 1, || None);
         }
-        let mut bucket = self.lookup.get_mut(index).expect("insert broken");
 
-        if let Some(bucket) = &mut bucket {
+        let bucket = self.lookup.get_mut(index).expect("insert broken");
+
+        if let Some(bucket) = bucket {
             bucket.push((key, Box::new(value)));
         } else {
             *bucket = Some(vec![(key, Box::new(value))]);
