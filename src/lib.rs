@@ -150,6 +150,19 @@ where
     }
 }
 
+impl<K, V> FromIterator<(K, V)> for MediocreMap<K, V>
+where
+    K: AsRef<[u8]> + PartialEq<K>,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        iter.into_iter()
+            .fold(MediocreMap::new(), |mut state, (k, v)| {
+                state.insert(k, v);
+                state
+            })
+    }
+}
+
 impl<K, V> std::ops::Index<K> for MediocreMap<K, V>
 where
     K: AsRef<[u8]> + PartialEq<K>,
@@ -182,6 +195,15 @@ mod tests {
         assert_eq!(map.get(&"tk2"), Some(&"tv2"));
         assert_eq!(map.get(&"tk3"), Some(&"tv3"));
         assert_eq!(map.get(&"tk4"), Some(&"tv4"));
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let items = vec![("tk1", "tv1"), ("tk2", "tv2")];
+
+        let map = MediocreMap::from_iter(items.into_iter());
+        assert_eq!(map.get(&"tk1"), Some(&"tv1"));
+        assert_eq!(map.get(&"tk2"), Some(&"tv2"));
     }
 
     #[test]
