@@ -67,10 +67,10 @@ impl<K, V> MediocreMap<K, V> {
         }
     }
 
-    /// Insert a given key
+    /// Insert a given key and value
     pub fn insert(&mut self, key: K, value: V)
     where
-        K: AsRef<[u8]>,
+        K: AsRef<[u8]> + PartialEq<K>,
     {
         let index = Self::hash(&key.as_ref());
 
@@ -81,26 +81,30 @@ impl<K, V> MediocreMap<K, V> {
         let bucket = self.lookup.get_mut(index).expect("insert broken");
 
         if let Some(bucket) = bucket {
-            bucket.push((key, Box::new(value)));
+            // Update the existing entry if the key already exists
+            let existing = bucket.iter().enumerate().find(|(_, (k, _))| k == &key);
+            if let Some((existing_idx, _)) = existing {
+                let entry = bucket.get_mut(existing_idx).expect("insert broken (again)");
+                *entry = (key, Box::new(value));
+            }
         } else {
             *bucket = Some(vec![(key, Box::new(value))]);
         }
     }
 
-    /// Remove a given key. Returns None when the key was not present and Some(()) when the key was present
-    pub fn remove(&mut self, key: &K) -> Option<()>
+    /// Remove a given key. Returns None when the key was not present and the key and value if it was.
+    pub fn remove(&mut self, key: &K) -> Option<(K, V)>
     where
         K: AsRef<[u8]> + PartialEq<K>,
     {
         let index = Self::hash(&key.as_ref());
-        if let Some(found_index) = self.lookup.get_mut(index) {
-            if let Some(item) = found_index {
-                item.retain(|(k, _)| k != key);
+        let item = self.lookup.get_mut(index)?;
 
-                return Some(());
-            } else {
-                None
-            }
+        if let Some(bucket) = item {
+            let (idx, _) = bucket.iter().enumerate().find(|(_, (k, _))| k == key)?;
+            let (r_k, r_v) = bucket.remove(idx);
+
+            return Some((r_k, *r_v));
         } else {
             None
         }
@@ -112,14 +116,11 @@ impl<K, V> MediocreMap<K, V> {
         K: AsRef<[u8]> + PartialEq<K>,
     {
         let index = Self::hash(&key.as_ref());
-        if let Some(found_index) = self.lookup.get(index) {
-            if let Some(item) = found_index {
-                let ptr = &item.iter().find(|(k, _)| k == key)?.1;
+        let item = self.lookup.get(index)?;
 
-                Some(ptr)
-            } else {
-                None
-            }
+        if let Some(bucket) = item {
+            let (_, val) = &bucket.iter().find(|(k, _)| k == key)?;
+            Some(val)
         } else {
             None
         }
