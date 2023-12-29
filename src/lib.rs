@@ -1,6 +1,6 @@
-//! A very medicre hashmap
+//! A very mediocre hashmap
 
-/// A very medicre hashmap
+/// A very mediocre hashmap
 ///
 /// # Examples
 /// ```
