@@ -34,7 +34,8 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, v.as_ref()))
     }
 
-    /// Create an iterator over all mutably borrowed elements in the map
+    /// Create an iterator over all mutably borrowed elements in the map            // Insert overrides
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut K, &mut V)> {
         self.lookup
             .iter_mut()
@@ -92,8 +93,8 @@ impl<K, V> MediocreMap<K, V> {
         }
     }
 
-    /// Remove a given key. Returns None when the key was not present and the key and value if it was.
-    pub fn remove(&mut self, key: &K) -> Option<(K, V)>
+    /// Remove a given key. Returns None when the key was not present and it's value if it was.
+    pub fn remove(&mut self, key: &K) -> Option<V>
     where
         K: AsRef<[u8]> + PartialEq<K>,
     {
@@ -102,9 +103,9 @@ impl<K, V> MediocreMap<K, V> {
 
         if let Some(bucket) = item {
             let (idx, _) = bucket.iter().enumerate().find(|(_, (k, _))| k == key)?;
-            let (r_k, r_v) = bucket.remove(idx);
+            let (_, removed_val) = bucket.remove(idx);
 
-            return Some((r_k, *r_v));
+            return Some(*removed_val);
         } else {
             None
         }
