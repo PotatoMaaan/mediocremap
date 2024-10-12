@@ -1,5 +1,15 @@
 //! A very mediocre hashmap
 
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    iter,
+};
+
+const TARGET_LOAD_FACTOR: f64 = 0.7;
+
+#[cfg(test)]
+mod test;
+
 /// A very mediocre hashmap
 ///
 /// # Examples
@@ -15,11 +25,18 @@
 #[derive(Debug, Clone)]
 pub struct MediocreMap<K, V> {
     lookup: Vec<Option<Vec<(K, Box<V>)>>>,
+    count: usize,
 }
 
 impl<K, V> MediocreMap<K, V> {
-    fn hash(input: &[u8]) -> usize {
-        input.iter().fold(0, |state, x| state ^ x) as usize
+    fn hash(input: impl Hash) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        input.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn index(&self, input: impl Hash) -> usize {
+        (Self::hash(input) % self.lookup.len() as u64) as usize
     }
 
     /// Create an iterator over all borrowed elements in the map
@@ -34,8 +51,11 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, v.as_ref()))
     }
 
-    /// Create an iterator over all mutably borrowed elements in the map            // Insert overrides
+    fn load_factor(&self) -> f64 {
+        self.count as f64 / self.lookup.len() as f64
+    }
 
+    /// Create an iterator over all mutably borrowed elements in the map
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut K, &mut V)> {
         self.lookup
             .iter_mut()
@@ -56,55 +76,107 @@ impl<K, V> MediocreMap<K, V> {
             .map(|(k, v)| (k, *v))
     }
 
-    /// Create a new Map
-    pub fn new() -> Self {
-        Self { lookup: vec![] }
-    }
-
-    /// Create a new map with a specified capacity for the internal vector
-    pub fn with_capacity(cap: usize) -> Self {
+    /// Create a new Map with the given capaity.
+    /// ```
+    /// let map = mediocremap::MediocreMap::<String, String>::new();
+    /// ```
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            lookup: Vec::with_capacity(cap),
+            lookup: iter::repeat_with(|| None).take(capacity).collect(),
+            count: 0,
         }
     }
 
-    /// Insert a given key and value
-    pub fn insert(&mut self, key: K, value: V)
-    where
-        K: AsRef<[u8]> + PartialEq<K>,
-    {
-        let index = Self::hash(&key.as_ref());
+    /// Create a new map with a default capacity
+    pub fn new() -> Self {
+        Self::with_capacity(100)
+    }
 
-        if self.lookup.len() <= index {
-            self.lookup.resize_with(index + 1, || None);
+    /// Gets the number of items currently stored in the hashmap
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Gets the number of buckets
+    pub fn capacity(&self) -> usize {
+        self.lookup.len()
+    }
+
+    /// Resizes the underlying store to hold `new_size` elements without cloning the data inside the map.
+    pub fn resize(&mut self, new_size: usize)
+    where
+        K: Hash + PartialEq<K>,
+    {
+        let mut new_self = Self::with_capacity(new_size);
+
+        for bucket in self.lookup.iter_mut() {
+            if let Some(bucket) = bucket.take() {
+                for (key, value) in bucket {
+                    new_self.insert_static_boxed(key, value);
+                }
+            }
         }
+
+        *self = new_self;
+    }
+
+    /// Inserts boxed value WITHOUT resizing
+    fn insert_static_boxed(&mut self, key: K, value: Box<V>)
+    where
+        K: Hash + PartialEq<K>,
+    {
+        let index = self.index(&key);
 
         let bucket = self.lookup.get_mut(index).expect("insert broken");
 
-        if let Some(bucket) = bucket {
+        let newly_inserted = if let Some(bucket) = bucket {
             // Update the existing entry if the key already exists
             let existing = bucket.iter().enumerate().find(|(_, (k, _))| k == &key);
             if let Some((existing_idx, _)) = existing {
                 let entry = bucket.get_mut(existing_idx).expect("insert broken (again)");
-                *entry = (key, Box::new(value));
+                *entry = (key, value);
+                false
+            } else {
+                bucket.push((key, value));
+                true
             }
         } else {
-            *bucket = Some(vec![(key, Box::new(value))]);
+            *bucket = Some(vec![(key, value)]);
+            true
+        };
+
+        if newly_inserted {
+            self.count += 1;
         }
+    }
+
+    /// Inserts a `key` and `value` into the map
+    ///
+    /// This function allocates more space once a certain usage rate is reached
+    pub fn insert(&mut self, key: K, value: V)
+    where
+        K: Hash + PartialEq<K>,
+    {
+        if self.load_factor() >= TARGET_LOAD_FACTOR {
+            self.resize(self.capacity() * 2);
+        }
+
+        self.insert_static_boxed(key, Box::new(value));
     }
 
     /// Remove a given key. Returns None when the key was not present and it's value if it was.
     pub fn remove(&mut self, key: &K) -> Option<V>
     where
-        K: AsRef<[u8]> + PartialEq<K>,
+        K: Hash + PartialEq<K>,
     {
-        let index = Self::hash(&key.as_ref());
+        let index = self.index(key);
         let item = self.lookup.get_mut(index)?;
 
         if let Some(bucket) = item {
             let (idx, _) = bucket.iter().enumerate().find(|(_, (k, _))| k == key)?;
             let (_, removed_val) = bucket.remove(idx);
 
+            self.count -= 1;
             return Some(*removed_val);
         } else {
             None
@@ -114,9 +186,9 @@ impl<K, V> MediocreMap<K, V> {
     /// Get the value at the given key
     pub fn get(&self, key: &K) -> Option<&V>
     where
-        K: AsRef<[u8]> + PartialEq<K>,
+        K: Hash + PartialEq<K>,
     {
-        let index = Self::hash(&key.as_ref());
+        let index = self.index(key);
         let item = self.lookup.get(index)?;
 
         if let Some(bucket) = item {
@@ -130,7 +202,7 @@ impl<K, V> MediocreMap<K, V> {
 
 impl<K, V, const N: usize> From<[(K, V); N]> for MediocreMap<K, V>
 where
-    K: AsRef<[u8]> + PartialEq<K>,
+    K: Hash + PartialEq<K>,
 {
     /// Construct a map from a slice of key-value pairs
     /// # Examples
@@ -152,11 +224,11 @@ where
 
 impl<K, V> FromIterator<(K, V)> for MediocreMap<K, V>
 where
-    K: AsRef<[u8]> + PartialEq<K>,
+    K: Hash + PartialEq<K>,
 {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         iter.into_iter()
-            .fold(MediocreMap::new(), |mut state, (k, v)| {
+            .fold(MediocreMap::with_capacity(100), |mut state, (k, v)| {
                 state.insert(k, v);
                 state
             })
@@ -165,80 +237,10 @@ where
 
 impl<K, V> std::ops::Index<K> for MediocreMap<K, V>
 where
-    K: AsRef<[u8]> + PartialEq<K>,
+    K: Hash + PartialEq<K>,
 {
     type Output = V;
     fn index(&self, index: K) -> &Self::Output {
         return self.get(&index).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn get_test_map() -> MediocreMap<&'static str, &'static str> {
-        let mut map = MediocreMap::new();
-        map.insert("tk1", "tv1");
-        map.insert("tk2", "tv2");
-        map.insert("tk2", "tv2");
-        map.insert("tk3", "tv3");
-        map.insert("tk4", "tv4");
-        map
-    }
-
-    #[test]
-    fn test_insert() {
-        let map = get_test_map();
-
-        assert_eq!(map.get(&"tk1"), Some(&"tv1"));
-        assert_eq!(map.get(&"tk2"), Some(&"tv2"));
-        assert_eq!(map.get(&"tk3"), Some(&"tv3"));
-        assert_eq!(map.get(&"tk4"), Some(&"tv4"));
-    }
-
-    #[test]
-    fn test_from_iter() {
-        let items = vec![("tk1", "tv1"), ("tk2", "tv2")];
-
-        let map = MediocreMap::from_iter(items.into_iter());
-        assert_eq!(map.get(&"tk1"), Some(&"tv1"));
-        assert_eq!(map.get(&"tk2"), Some(&"tv2"));
-    }
-
-    #[test]
-    fn test_remove() {
-        let mut map = get_test_map();
-
-        map.remove(&"tk1");
-        map.remove(&"tk2");
-        map.remove(&"tk3");
-        map.remove(&"tk4");
-
-        assert_eq!(map.get(&"tk1"), None);
-        assert_eq!(map.get(&"tk2"), None);
-        assert_eq!(map.get(&"tk3"), None);
-        assert_eq!(map.get(&"tk4"), None);
-    }
-
-    #[test]
-    fn test_iter() {
-        let map = get_test_map();
-        let items = map.iter().collect::<Vec<_>>();
-
-        assert!(items.contains(&(&"tk1", &"tv1")));
-        assert!(items.contains(&(&"tk2", &"tv2")));
-        assert!(items.contains(&(&"tk3", &"tv3")));
-        assert!(items.contains(&(&"tk4", &"tv4")));
-    }
-
-    #[test]
-    fn test_index() {
-        let map = get_test_map();
-
-        assert_eq!(map["tk1"], "tv1");
-        assert_eq!(map["tk2"], "tv2");
-        assert_eq!(map["tk3"], "tv3");
-        assert_eq!(map["tk4"], "tv4");
     }
 }
